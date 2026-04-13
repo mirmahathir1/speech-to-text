@@ -24,6 +24,7 @@ const selectedFile = ref(null)
 const dragActive = ref(false)
 const isTranscribing = ref(false)
 const transcript = ref('')
+const turns = ref([])
 const errorMessage = ref('')
 const statusMessage = ref('Drop an audio file to start a transcription.')
 const completedFileName = ref('')
@@ -40,6 +41,9 @@ const downloadFileName = computed(() => {
 
   return `${stem || 'transcript'}-transcript.txt`
 })
+const speakerCount = computed(
+  () => new Set(turns.value.map((turn) => turn.speaker).filter(Boolean)).size,
+)
 
 function openFilePicker() {
   if (!isTranscribing.value) {
@@ -95,6 +99,7 @@ function prepareFile(file) {
 
   selectedFile.value = file
   transcript.value = ''
+  turns.value = []
   completedFileName.value = ''
   statusMessage.value = `Uploading ${file.name} to the transcription service...`
 
@@ -119,10 +124,14 @@ async function transcribeSelectedFile(file) {
 
     const data = await response.json()
     transcript.value = data.transcript
+    turns.value = Array.isArray(data.turns) ? data.turns : []
     completedFileName.value = data.filename || file.name
-    statusMessage.value = `Transcript ready for ${completedFileName.value}.`
+    statusMessage.value = turns.value.length
+      ? `Transcript ready for ${completedFileName.value} with ${speakerCount.value} detected ${speakerCount.value === 1 ? 'speaker' : 'speakers'}.`
+      : `Transcript ready for ${completedFileName.value}.`
   } catch (error) {
     transcript.value = ''
+    turns.value = []
     completedFileName.value = ''
     errorMessage.value =
       error instanceof Error ? error.message : 'The transcription request failed.'
@@ -177,17 +186,35 @@ function formatFileSize(bytes) {
 
   return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`
 }
+
+function formatTimestamp(seconds) {
+  if (typeof seconds !== 'number' || Number.isNaN(seconds) || seconds < 0) {
+    return '00:00'
+  }
+
+  const totalSeconds = Math.floor(seconds)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const remainingSeconds = totalSeconds % 60
+
+  if (hours > 0) {
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`
+  }
+
+  return `${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`
+}
 </script>
 
 <template>
   <main class="app-shell">
     <section class="hero-panel">
       <div class="hero-copy">
-        <p class="eyebrow">Vue + FastAPI + Whisper</p>
-        <h1>Drop in audio. Get a transcript back.</h1>
+        <p class="eyebrow">Vue + FastAPI + OpenAI Audio</p>
+        <h1>Upload audio. Get speaker-labeled text back.</h1>
         <p class="hero-text">
-          The frontend streams your file to a Python backend, the backend runs a local Whisper
-          model in Docker, and the finished transcript becomes downloadable as a text file.
+          The frontend sends your file to a FastAPI backend, the backend calls OpenAI&apos;s
+          diarized transcription API, and the finished transcript comes back with lines assigned to
+          Speaker 1, Speaker 2, and the rest of the detected speakers.
         </p>
       </div>
 
@@ -221,7 +248,7 @@ function formatFileSize(bytes) {
           <h2>Drag and drop an interview, lecture, meeting, or voice memo.</h2>
           <p>
             Supported uploads include MP3, WAV, M4A, OGG, FLAC, WebM, and the other common audio
-            formats accepted by the local Whisper pipeline.
+            formats accepted by the OpenAI transcription endpoint.
           </p>
         </div>
 
@@ -245,8 +272,8 @@ function formatFileSize(bytes) {
         <div v-if="isTranscribing" class="loader-block" aria-live="polite">
           <span class="spinner" />
           <div>
-            <p class="loader-title">Transcribing with Local Whisper</p>
-            <p class="loader-copy">The first run may take longer while the model downloads.</p>
+            <p class="loader-title">Transcribing with OpenAI</p>
+            <p class="loader-copy">Speaker labels are added before the transcript returns.</p>
           </div>
         </div>
 
@@ -258,6 +285,9 @@ function formatFileSize(bytes) {
           <div>
             <p class="eyebrow">Transcript</p>
             <h2>Output</h2>
+            <p v-if="speakerCount" class="transcript-meta">
+              {{ speakerCount }} detected {{ speakerCount === 1 ? 'speaker' : 'speakers' }}
+            </p>
           </div>
 
           <button
@@ -271,12 +301,28 @@ function formatFileSize(bytes) {
         </div>
 
         <p v-if="!transcript && !isTranscribing" class="placeholder-copy">
-          Your transcript will appear here after the upload finishes.
+          Your speaker-attributed transcript will appear here after the upload finishes.
         </p>
 
         <div v-else-if="isTranscribing" class="placeholder-copy placeholder-panel">
-          Working through the audio now. The download button appears as soon as the transcript is
-          ready.
+          Working through the audio now. The download button appears as soon as the speaker-labeled
+          transcript is ready.
+        </div>
+
+        <div v-else-if="turns.length" class="turn-list">
+          <article
+            v-for="turn in turns"
+            :key="`${turn.start}-${turn.end}-${turn.speaker}`"
+            class="turn-card"
+          >
+            <div class="turn-head">
+              <p class="turn-speaker">{{ turn.speaker || 'Speaker' }}</p>
+              <p class="turn-time">
+                {{ formatTimestamp(turn.start) }} - {{ formatTimestamp(turn.end) }}
+              </p>
+            </div>
+            <p class="turn-text">{{ turn.text }}</p>
+          </article>
         </div>
 
         <textarea
