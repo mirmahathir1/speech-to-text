@@ -1,8 +1,8 @@
 .DS_Store
-backend/.env
 backend/.cache/
 backend/__pycache__/
 backend/**/__pycache__/
 backend/.venv/
 frontend/dist/
 frontend/node_modules/
+.env
