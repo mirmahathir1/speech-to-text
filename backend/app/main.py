@@ -55,6 +55,7 @@ ALLOWED_EXTENSIONS = {
   '.wav',
   '.webm',
 }
+ALLOWED_VIDEO_CONTENT_TYPES = {'video/mp4'}
 OPENAI_MODE = 'openai'
 OPENAI_DEVICE = 'remote'
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '').strip()
@@ -424,9 +425,17 @@ async def transcribe_audio(file: UploadFile = File(...)) -> TranscriptionRespons
 
   extension = Path(file.filename).suffix.lower()
   content_type = file.content_type or ''
+  normalized_content_type = content_type.split(';', maxsplit=1)[0].strip().lower()
 
-  if extension not in ALLOWED_EXTENSIONS and not content_type.startswith('audio/'):
-    raise HTTPException(status_code=400, detail='Unsupported file type. Please upload an audio file.')
+  if (
+    extension not in ALLOWED_EXTENSIONS
+    and not normalized_content_type.startswith('audio/')
+    and normalized_content_type not in ALLOWED_VIDEO_CONTENT_TYPES
+  ):
+    raise HTTPException(
+      status_code=400,
+      detail='Unsupported file type. Please upload an audio file or an MP4 video file.',
+    )
 
   try:
     payload = await file.read()

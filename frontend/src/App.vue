@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 
 const acceptedFileTypes =
-  'audio/*,.aac,.flac,.m4a,.mp3,.mp4,.mpeg,.mpga,.oga,.ogg,.wav,.webm'
+  'audio/*,video/mp4,.aac,.flac,.m4a,.mp3,.mp4,.mpeg,.mpga,.oga,.ogg,.wav,.webm'
 const allowedExtensions = new Set([
   '.aac',
   '.flac',
@@ -90,10 +90,11 @@ function prepareFile(file) {
   }
 
   const extension = `.${file.name.split('.').pop()?.toLowerCase() || ''}`
-  const isAudioFile = file.type.startsWith('audio/') || allowedExtensions.has(extension)
+  const isSupportedFile =
+    file.type.startsWith('audio/') || file.type === 'video/mp4' || allowedExtensions.has(extension)
 
-  if (!isAudioFile) {
-    errorMessage.value = 'Only audio uploads are supported. Try MP3, WAV, M4A, OGG, or WebM.'
+  if (!isSupportedFile) {
+    errorMessage.value = 'Upload an audio file or an MP4 video file.'
     return
   }
 
@@ -210,7 +211,7 @@ function formatTimestamp(seconds) {
     <section class="hero-panel">
       <div class="hero-copy">
         <p class="eyebrow">Vue + FastAPI + OpenAI Audio</p>
-        <h1>Upload audio. Get speaker-labeled text back.</h1>
+        <h1>Upload audio or MP4 video. Get speaker-labeled text back.</h1>
         <p class="hero-text">
           The frontend sends your file to a FastAPI backend, the backend calls OpenAI&apos;s
           diarized transcription API, and the finished transcript comes back with lines assigned to
@@ -245,10 +246,10 @@ function formatTimestamp(seconds) {
 
         <div class="dropzone-copy">
           <p class="eyebrow">Audio Upload</p>
-          <h2>Drag and drop an interview, lecture, meeting, or voice memo.</h2>
+          <h2>Drag and drop an interview, lecture, meeting, video, or voice memo.</h2>
           <p>
-            Supported uploads include MP3, WAV, M4A, OGG, FLAC, WebM, and the other common audio
-            formats accepted by the OpenAI transcription endpoint.
+            Supported uploads include MP3, WAV, M4A, OGG, FLAC, WebM, and MP4 video. Video uploads
+            are converted to audio before transcription.
           </p>
         </div>
 
