@@ -30,6 +30,8 @@ CONTENT_TYPES_BY_SUFFIX = {
   '.wav': 'audio/wav',
   '.webm': 'audio/webm',
 }
+VIDEO_SUFFIXES_REQUIRING_AUDIO_EXTRACTION = {'.mp4'}
+VIDEO_CONTENT_TYPES_REQUIRING_AUDIO_EXTRACTION = {'video/mp4'}
 
 
 @dataclass(frozen=True)
@@ -64,6 +66,16 @@ def _require_binary(binary_name: str) -> str:
 def _guess_content_type(suffix: str, fallback: str | None = None) -> str | None:
   normalized_suffix = suffix.lower()
   return CONTENT_TYPES_BY_SUFFIX.get(normalized_suffix, fallback)
+
+
+def _requires_audio_extraction(filename: str, content_type: str | None) -> bool:
+  suffix = Path(filename).suffix.lower()
+  normalized_content_type = (content_type or '').split(';', maxsplit=1)[0].strip().lower()
+
+  return (
+    suffix in VIDEO_SUFFIXES_REQUIRING_AUDIO_EXTRACTION
+    or normalized_content_type in VIDEO_CONTENT_TYPES_REQUIRING_AUDIO_EXTRACTION
+  )
 
 
 def _probe_duration_seconds(input_path: Path) -> float | None:
@@ -233,6 +245,67 @@ def _prepare_single_upload(
   )
 
 
+def _extract_audio_from_video(input_path: Path, output_path: Path) -> None:
+  ffmpeg = _require_binary('ffmpeg')
+  copy_result = subprocess.run(
+    [
+      ffmpeg,
+      '-y',
+      '-i',
+      str(input_path),
+      '-vn',
+      '-map',
+      '0:a:0',
+      '-map_metadata',
+      '-1',
+      '-c:a',
+      'copy',
+      str(output_path),
+    ],
+    capture_output=True,
+    text=True,
+    check=False,
+  )
+
+  if copy_result.returncode == 0 and output_path.exists() and output_path.stat().st_size > 0:
+    return
+
+  output_path.unlink(missing_ok=True)
+  transcode_result = subprocess.run(
+    [
+      ffmpeg,
+      '-y',
+      '-i',
+      str(input_path),
+      '-vn',
+      '-map',
+      '0:a:0',
+      '-map_metadata',
+      '-1',
+      '-ac',
+      '1',
+      '-ar',
+      '16000',
+      '-c:a',
+      'aac',
+      '-b:a',
+      '64k',
+      str(output_path),
+    ],
+    capture_output=True,
+    text=True,
+    check=False,
+  )
+
+  if transcode_result.returncode == 0 and output_path.exists() and output_path.stat().st_size > 0:
+    return
+
+  raise AudioPreparationError(
+    'The uploaded MP4 does not contain an extractable audio track.',
+    status_code=400,
+  )
+
+
 def _extract_segment(
   *,
   input_path: Path,
@@ -324,6 +397,16 @@ def prepare_audio_uploads(
     temp_dir_path = Path(temp_dir)
     input_path = temp_dir_path / f'input{source_suffix}'
     input_path.write_bytes(payload)
+
+    if _requires_audio_extraction(filename, content_type):
+      extracted_audio_path = temp_dir_path / 'extracted-audio.m4a'
+      _extract_audio_from_video(input_path, extracted_audio_path)
+      filename = f'{Path(filename).stem}-audio.m4a'
+      payload = extracted_audio_path.read_bytes()
+      content_type = 'audio/mp4'
+      source_suffix = '.m4a'
+      input_path = extracted_audio_path
+
     total_duration_seconds = _probe_duration_seconds(input_path)
 
     if total_duration_seconds is None or total_duration_seconds <= segment_seconds:
